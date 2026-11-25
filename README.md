@@ -19,7 +19,7 @@ zz-jingcai-analysis/
 
 ## 快速开始
 
-依赖：Python 3.9+；台账 PNG 长图渲染另需 `playwright` + 无头 Chromium（无 Chromium 时先交付 HTML 与 CSV）。
+依赖：Python 3.9+。
 
 ```bash
 # 生成当日台账快照（输入为符合 schema 的赛事 JSON）
@@ -28,6 +28,15 @@ python3 scripts/build_ledger.py --input matches.json --out ./output
 # 赛后回测（输入为回填赛果的历史台账 CSV）
 python3 scripts/backtest_ledger.py --input backtest.csv --out ./output
 ```
+
+### PNG 长图渲染
+
+脚本会自动探测本机浏览器（`CHROME_PATH` 环境变量 → Linux chromium/chrome → Windows Chrome/Edge 默认路径），两套渲染路径任选其一：
+
+1. 已安装 `playwright`：全页截图，效果最好
+2. 未安装 `playwright`：自动降级为 Chrome/Edge 无头 `--screenshot`，再用 Pillow 裁掉底部空白（无 Pillow 也能出图，仅留白边）
+
+两者都不可用时脚本会报错并保留 HTML/CSV，不会输出半成品图。
 
 ## 字段与口径
 
