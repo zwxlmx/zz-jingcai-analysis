@@ -38,7 +38,13 @@ python3 scripts/backtest_ledger.py --input backtest.csv --out ./output
 - `--input`：回填赛果的历史台账 CSV（字段见 data_schema 第 4 节）
 - 产物：`回测报告.md`（命中率/ROI/最大回撤汇总）、`回测明细.csv`（逐笔回款、累计净值、回撤）
 
-脚本依赖：Python 标准库；台账快照渲染另需 `playwright` + 无头 Chromium。若环境无 Chromium，先交付 HTML 与 CSV，PNG 渲染标注为待补。
+### 渲染依赖（PNG 长图）
+
+脚本按优先级自动探测本机浏览器：环境变量 `CHROME_PATH` → Linux 下 chromium/chrome → Windows 下 Chrome/Edge 默认安装路径。
+
+- 装了 `playwright`：走 playwright 全页截图（`full_page=True`）
+- 没装 playwright：自动降级为 Chrome/Edge 无头 `--screenshot`，再用 Pillow 裁掉底部空白；无 Pillow 时保留原截图，不报错
+- 两者都没有：抛出提示，先交付 HTML 与 CSV，PNG 标注为待补
 
 ## 输入模式
 
