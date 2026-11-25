@@ -10,7 +10,7 @@
 用法：
   python3 build_ledger.py --input matches.json --out ./output
 """
-import argparse, json, pathlib, asyncio, html
+import argparse, json, pathlib, asyncio, html, os, subprocess
 
 # ---------- 计算 ----------
 
@@ -77,10 +77,10 @@ def render_html(meta, rows):
     trs = []
     for r in rows:
         if not r["probs"]:
-            prob = '<span class="muted">未开盘／已完赛</span>'
+            prob = '<span class="muted">未开售／无赔率</span>'
             best = diff = rtp = '<span class="muted">—</span>'
             sigcls = "sig-gray"
-            tag = "已完赛"
+            tag = r["status"] or "未开售"
         else:
             p = r["probs"]
             prob = (f'<span class="ph">{p[0]:.1f}</span> / <span class="ph">{p[1]:.1f}</span> / '
@@ -194,15 +194,73 @@ def write_csv(rows, path):
                      f'{r["diff"]:+.2f},{r["rtp"]:.2f},{r["sig"]},{r["status"]}')
     path.write_text("\n".join(lines), encoding="utf-8")
 
+BROWSER_CANDIDATES = [
+    os.environ.get("CHROME_PATH", ""),
+    "/usr/local/bin/chromium",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/usr/bin/google-chrome",
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+]
+
+def find_browser():
+    """返回本机可用的浏览器可执行文件路径；找不到返回 None"""
+    for c in BROWSER_CANDIDATES:
+        if c and pathlib.Path(c).exists():
+            return c
+    return None
+
+def trim_bottom_blank(png_path):
+    """裁剪截图底部纯色空白（无 Pillow 时跳过）"""
+    try:
+        from PIL import Image
+    except ImportError:
+        return
+    im = Image.open(png_path).convert("RGB")
+    w, h = im.size
+    px = im.load()
+    bg = px[w // 2, h - 1]
+    last = h - 1
+    while last > 0:
+        row_mid = px[w // 2, last]
+        row_left = px[2, last]
+        if row_mid != bg or row_left != bg:
+            break
+        last -= 1
+    if last < h - 1:
+        im.crop((0, 0, w, min(h, last + 1))).save(png_path)
+
 async def render_png(html_path, png_path):
-    from playwright.async_api import async_playwright
-    async with async_playwright() as pw:
-        b = await pw.chromium.launch(executable_path="/usr/local/bin/chromium", args=["--no-sandbox"])
-        pg = await b.new_page(viewport={"width": 1140, "height": 900}, device_scale_factor=2)
-        await pg.goto(html_path.as_uri())
-        await pg.wait_for_timeout(500)
-        await pg.screenshot(path=str(png_path), full_page=True)
-        await b.close()
+    exe = find_browser()
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:
+        async_playwright = None
+
+    if async_playwright is not None:
+        async with async_playwright() as pw:
+            kw = {"args": ["--no-sandbox"]}
+            if exe:
+                kw["executable_path"] = exe
+            b = await pw.chromium.launch(**kw)
+            pg = await b.new_page(viewport={"width": 1140, "height": 900}, device_scale_factor=2)
+            await pg.goto(html_path.as_uri())
+            await pg.wait_for_timeout(500)
+            await pg.screenshot(path=str(png_path), full_page=True)
+            await b.close()
+        return
+
+    if not exe:
+        raise RuntimeError("未找到可用的 Chrome/Edge/Chromium，且未安装 playwright，无法渲染 PNG")
+    subprocess.run(
+        [exe, "--headless", "--disable-gpu", "--hide-scrollbars",
+         f"--screenshot={png_path}", "--window-size=1140,2600", html_path.as_uri()],
+        check=True,
+    )
+    trim_bottom_blank(png_path)
 
 def main():
     ap = argparse.ArgumentParser()
@@ -214,7 +272,7 @@ def main():
     meta = data.get("meta", {})
     rows = build_rows(data.get("match_list", []))
 
-    out = pathlib.Path(args.out)
+    out = pathlib.Path(args.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
     batch = meta.get("batch", "ledger")
 
